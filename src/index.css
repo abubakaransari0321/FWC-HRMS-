@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-[#faf8ff] text-[#191b23] antialiased selection:bg-[#004ac6]/15;
+  }
+}
+
+/* Custom premium transitions */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Scrollbars overrides */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Shadow utilities for maximum clarity */
+.shadow-card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.shadow-card-hover {
+  box-shadow: 0 4px 12px rgba(0, 74, 198, 0.04), 0 2px 4px rgba(0, 74, 198, 0.02);
+}
+
+.shadow-modal {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.06), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Typography styles */
+.text-display-lg {
+  font-size: 1.65rem;
+  line-height: 2.15rem;
+}
+
+.text-headline-md {
+  font-size: 1.25rem;
+  line-height: 1.65rem;
+}
+
+.text-title-sm {
+  font-size: 1rem;
+  line-height: 1.35rem;
+}
+
+.text-body-md {
+  font-size: 0.8rem;
+  line-height: 1.15rem;
+}

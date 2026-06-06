@@ -1,0 +1,6 @@
+{
+  "name": "Stitch HRMS",
+  "description": "Stitch HRMS - An AI-powered Enterprise Human Resource Management Suite providing Kanban candidate pipelines, AI resume screening, an AI HR Assistant chat, and analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
