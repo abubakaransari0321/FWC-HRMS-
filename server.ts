@@ -8,11 +8,24 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-import { dbService } from "./src/server/db.js";
+import { 
+  dbService, 
+  initializeMongo, 
+  UserModel, 
+  EmployeeModel, 
+  JobOpeningModel, 
+  ApplicationModel, 
+  AttendanceModel, 
+  LeaveRequestModel, 
+  PayslipModel, 
+  PerformanceReviewModel, 
+  AuditLogModel 
+} from "./src/server/db.js";
 import { 
   Role, EmployeeStatus, EmploymentType, JobStatus, 
   PipelineStage, ApplicationSource, Priority, AttendanceStatus, 
-  LeaveType, LeaveStatus, PayrollStatus 
+  LeaveType, LeaveStatus, PayrollStatus, User, Employee, JobOpening, 
+  Application, Attendance, LeaveRequest, Payslip, PerformanceReview 
 } from "./src/types.js";
 
 // Load environment variables
@@ -23,6 +36,55 @@ const PORT = 3000;
 
 // Allow body parses up to 15mb for base64 PDF uploads
 app.use(express.json({ limit: "15mb" }));
+
+// ----------------------------------------------------
+// MONGO ATLAS REAL-TIME SYNC MIDDLEWARE
+// ----------------------------------------------------
+// This middleware runs on every API request. It ensures the MongoDB Atlas connection
+// is active and synchronously pulls the latest collection state into memory so
+// that both serverless (Vercel) and long-running (Render) hosts are 100% in sync
+// and "MongoDB only" is achieved with absolutely no local disk storage dependencies.
+app.use(async (req, res, next) => {
+  if (req.path.startsWith("/api") && req.path !== "/api/db-status") {
+    try {
+      // Ensure connected inside initializeMongo
+      await initializeMongo();
+
+      const [users, employees, jobs, applications, attendance, leaves, payslips, performance, auditLogs] = await Promise.all([
+        UserModel.find().lean(),
+        EmployeeModel.find().lean(),
+        JobOpeningModel.find().lean(),
+        ApplicationModel.find().lean(),
+        AttendanceModel.find().lean(),
+        LeaveRequestModel.find().lean(),
+        PayslipModel.find().lean(),
+        PerformanceReviewModel.find().lean(),
+        AuditLogModel.find().sort({ createdAt: -1 }).lean()
+      ]);
+
+      const cleanDoc = (doc: any) => {
+        if (!doc) return doc;
+        const { _id, __v, ...rest } = doc;
+        return rest;
+      };
+
+      dbService.syncFromMongo({
+        users: users.map(cleanDoc),
+        employees: employees.map(cleanDoc),
+        jobs: jobs.map(cleanDoc),
+        applications: applications.map(cleanDoc),
+        attendance: attendance.map(cleanDoc),
+        leaves: leaves.map(cleanDoc),
+        payslips: payslips.map(cleanDoc),
+        performance: performance.map(cleanDoc),
+        auditLogs: auditLogs.map(cleanDoc)
+      });
+    } catch (err) {
+      console.error("Express Atlas middleware sync failed:", err);
+    }
+  }
+  next();
+});
 
 // Safe Gemini SDK Client Getter
 let aiClient: GoogleGenAI | null = null;
@@ -48,7 +110,7 @@ function getGeminiClient(): GoogleGenAI | null {
 // ----------------------------------------------------
 // AUTHENTICATION & SESSION CONTROLLER
 // ----------------------------------------------------
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: "Email is required" });
@@ -65,7 +127,7 @@ app.post("/api/auth/login", (req, res) => {
     else if (email.startsWith("manager")) role = Role.SENIOR_MANAGER;
     else if (email.startsWith("hr")) role = Role.HR_RECRUITER;
 
-    user = dbService.createUser({
+    user = await dbService.createUser({
       id: `u-${Math.random().toString(36).substr(2, 9)}`,
       email: email.toLowerCase(),
       role,
@@ -76,7 +138,7 @@ app.post("/api/auth/login", (req, res) => {
     const employees = dbService.getEmployees();
     const existingEmp = employees.find(e => e.email.toLowerCase() === email.toLowerCase());
     if (!existingEmp) {
-      dbService.createEmployee({
+      await dbService.createEmployee({
         id: `emp-${Math.random().toString(36).substr(2, 9)}`,
         userId: user.id,
         employeeCode: `EMP-${Math.floor(100 + Math.random() * 900)}`,
@@ -93,7 +155,7 @@ app.post("/api/auth/login", (req, res) => {
     }
   }
 
-  dbService.addLog({
+  await dbService.addLog({
     userId: user.id,
     action: "LOGIN",
     resource: "Auth",
@@ -158,9 +220,9 @@ app.get("/api/employees/:id", (req, res) => {
   return res.json(emp);
 });
 
-app.post("/api/employees", (req, res) => {
+app.post("/api/employees", async (req, res) => {
   const data = req.body;
-  const newEmp = dbService.createEmployee({
+  const newEmp = await dbService.createEmployee({
     id: `emp-${Math.random().toString(36).substr(2, 9)}`,
     userId: `u-emp-${Math.random().toString(36).substr(2, 9)}`,
     employeeCode: data.employeeCode || `EMP-${Math.floor(100 + Math.random() * 900)}`,
@@ -176,7 +238,7 @@ app.post("/api/employees", (req, res) => {
     salary: Number(data.salary) || 75000
   });
 
-  dbService.addLog({
+  await dbService.addLog({
     userId: "SYSTEM",
     action: "CREATE_EMPLOYEE",
     resource: "Employees",
@@ -186,11 +248,11 @@ app.post("/api/employees", (req, res) => {
   return res.json(newEmp);
 });
 
-app.put("/api/employees/:id", (req, res) => {
-  const updated = dbService.updateEmployee(req.params.id, req.body);
+app.put("/api/employees/:id", async (req, res) => {
+  const updated = await dbService.updateEmployee(req.params.id, req.body);
   if (!updated) return res.status(404).json({ error: "Employee not found" });
 
-  dbService.addLog({
+  await dbService.addLog({
     userId: "SYSTEM",
     action: "UPDATE_EMPLOYEE",
     resource: "Employees",
@@ -217,18 +279,18 @@ app.get("/api/jobs", (req, res) => {
   return res.json(dbService.getJobs());
 });
 
-app.put("/api/jobs/:id", (req, res) => {
+app.put("/api/jobs/:id", async (req, res) => {
   const { requirements } = req.body;
   if (!Array.isArray(requirements)) {
     return res.status(400).json({ error: "requirements must be an array of strings" });
   }
 
-  const updated = dbService.updateJob(req.params.id, { requirements });
+  const updated = await dbService.updateJob(req.params.id, { requirements });
   if (!updated) {
     return res.status(404).json({ error: "Job not found" });
   }
 
-  dbService.addLog({
+  await dbService.addLog({
     userId: "SYSTEM",
     action: "UPDATE_JOB_CRITERIA",
     resource: "Jobs",
@@ -247,9 +309,9 @@ app.get("/api/applications", (req, res) => {
   return res.json(apps);
 });
 
-app.post("/api/applications", (req, res) => {
+app.post("/api/applications", async (req, res) => {
   const data = req.body;
-  const newApp = dbService.createApplication({
+  const newApp = await dbService.createApplication({
     id: `app-${Math.random().toString(36).substr(2, 9)}`,
     jobOpeningId: data.jobOpeningId || "job-1",
     candidateName: data.candidateName || "John Doe",
@@ -264,12 +326,12 @@ app.post("/api/applications", (req, res) => {
   return res.json(newApp);
 });
 
-app.patch("/api/applications/:id/stage", (req, res) => {
+app.patch("/api/applications/:id/stage", async (req, res) => {
   const { stage } = req.body;
-  const updated = dbService.updateApplicationStage(req.params.id, stage as PipelineStage);
+  const updated = await dbService.updateApplicationStage(req.params.id, stage as PipelineStage);
   if (!updated) return res.status(404).json({ error: "Application not found" });
 
-  dbService.addLog({
+  await dbService.addLog({
     userId: "SYSTEM",
     action: "STAGE_CHANGE",
     resource: "Applications",
@@ -294,7 +356,7 @@ app.get("/api/attendance", (req, res) => {
   return res.json(records);
 });
 
-app.post("/api/attendance/check-in", (req, res) => {
+app.post("/api/attendance/check-in", async (req, res) => {
   const { employeeId } = req.body;
   if (!employeeId) return res.status(400).json({ error: "employeeId is required" });
 
@@ -310,7 +372,7 @@ app.post("/api/attendance/check-in", (req, res) => {
   const hour = now.getUTCHours() + 5.5; // Simple Indian timezone conversion offset for demo
   const isLate = (hour % 24) >= 9.5; // Late if after 09:30 AM
 
-  const newRecord = dbService.createAttendance({
+  const newRecord = await dbService.createAttendance({
     id: `att-${employeeId}-${today}`,
     employeeId,
     date: today,
@@ -321,25 +383,28 @@ app.post("/api/attendance/check-in", (req, res) => {
   return res.json(newRecord);
 });
 
-app.post("/api/attendance/check-out", (req, res) => {
+app.post("/api/attendance/check-out", async (req, res) => {
   const { employeeId } = req.body;
   const today = new Date().toISOString().split("T")[0];
-  const idx = dbService.getAttendance().findIndex(r => r.employeeId === employeeId && r.date === today);
+  const record = dbService.getAttendance().find(r => r.employeeId === employeeId && r.date === today);
 
-  if (idx === -1) {
+  if (!record) {
     return res.status(400).json({ error: "Not checked in today" });
   }
 
-  const record = dbService.getAttendance()[idx];
-  record.checkOut = new Date().toISOString();
-  
+  const checkOutValue = new Date().toISOString();
+  let hoursWorked = 0;
   if (record.checkIn) {
-    const diff = new Date(record.checkOut).getTime() - new Date(record.checkIn).getTime();
-    record.hoursWorked = Number((diff / (1000 * 60 * 60)).toFixed(2));
+    const diff = new Date(checkOutValue).getTime() - new Date(record.checkIn).getTime();
+    hoursWorked = Number((diff / (1000 * 60 * 60)).toFixed(2));
   }
 
-  dbService.saveDB();
-  return res.json(record);
+  const updated = await dbService.updateAttendance(record.id, {
+    checkOut: checkOutValue,
+    hoursWorked
+  });
+
+  return res.json(updated);
 });
 
 // ----------------------------------------------------
@@ -354,9 +419,9 @@ app.get("/api/leaves", (req, res) => {
   return res.json(leaves);
 });
 
-app.post("/api/leaves", (req, res) => {
+app.post("/api/leaves", async (req, res) => {
   const data = req.body;
-  const newLeave = dbService.createLeaveRequest({
+  const newLeave = await dbService.createLeaveRequest({
     id: `leave-${Math.random().toString(36).substr(2, 9)}`,
     employeeId: data.employeeId,
     type: data.type || LeaveType.CASUAL,
@@ -371,12 +436,12 @@ app.post("/api/leaves", (req, res) => {
   return res.json(newLeave);
 });
 
-app.patch("/api/leaves/:id", (req, res) => {
+app.patch("/api/leaves/:id", async (req, res) => {
   const { status, approvedBy } = req.body;
-  const updated = dbService.updateLeaveRequestStatus(req.params.id, status as LeaveStatus, approvedBy);
+  const updated = await dbService.updateLeaveRequestStatus(req.params.id, status as LeaveStatus, approvedBy);
   if (!updated) return res.status(404).json({ error: "Leave request not found" });
 
-  dbService.addLog({
+  await dbService.addLog({
     userId: approvedBy || "SYSTEM",
     action: `LEAVE_${status}`,
     resource: "Leaves",
@@ -393,13 +458,13 @@ app.get("/api/payroll", (req, res) => {
   return res.json(dbService.getPayslips());
 });
 
-app.post("/api/payroll/process", (req, res) => {
+app.post("/api/payroll/process", async (req, res) => {
   const slips = dbService.getPayslips();
-  slips.forEach(p => {
+  for (const p of slips) {
     if (p.status === PayrollStatus.PENDING) {
-      dbService.updatePayslipStatus(p.id, PayrollStatus.PROCESSED);
+      await dbService.updatePayslipStatus(p.id, PayrollStatus.PROCESSED);
     }
-  });
+  }
   return res.json({ success: true, count: slips.length });
 });
 
@@ -415,9 +480,9 @@ app.get("/api/performance", (req, res) => {
   return res.json(reviews);
 });
 
-app.post("/api/performance", (req, res) => {
+app.post("/api/performance", async (req, res) => {
   const data = req.body;
-  const review = dbService.createPerformanceReview({
+  const review = await dbService.createPerformanceReview({
     id: `perf-${Math.random().toString(36).substr(2, 9)}`,
     employeeId: data.employeeId,
     period: data.period || "Q2-2026",
@@ -511,7 +576,7 @@ Return strictly a valid JSON object matching this schema:
       const parsed = JSON.parse(resultText.trim());
 
       // Create a candidate application with this real Gemini screening result!
-      const newApp = dbService.createApplication({
+      const newApp = await dbService.createApplication({
         id: `app-${Math.random().toString(36).substr(2, 9)}`,
         jobOpeningId: currentJob.id,
         candidateName: candidateName || "Candidate",
@@ -615,7 +680,7 @@ ${matchScore >= 80
     : "Low tech-stack keyword coverage. Suggest keeping resume in backup pool for other openings."
   )}`;
 
-  const newAppLocal = dbService.createApplication({
+  const newAppLocal = await dbService.createApplication({
     id: `app-${Math.random().toString(36).substr(2, 9)}`,
     jobOpeningId: currentJob.id,
     candidateName: candidateName || "Candidate",

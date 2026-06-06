@@ -586,26 +586,12 @@ function generateSeedData(): DBStorage {
 
 // Ensure db state is loaded/saved
 export function loadDB() {
-  try {
-    if (fs.existsSync(STORAGE_FILE)) {
-      const data = fs.readFileSync(STORAGE_FILE, "utf-8");
-      db = JSON.parse(data);
-    } else {
-      db = generateSeedData();
-      saveDB();
-    }
-  } catch (err) {
-    console.error("Failed to load local DB state. Using initial mock.", err);
-    db = generateSeedData();
-  }
+  // Always initialize with default seed metrics schema directly
+  db = generateSeedData();
 }
 
 export function saveDB() {
-  try {
-    fs.writeFileSync(STORAGE_FILE, JSON.stringify(db, null, 2), "utf-8");
-  } catch (err) {
-    console.error("Failed to save local DB state.", err);
-  }
+  // Local storage file writes disabled as requested: MongoDB ONLY
 }
 
 // Initial DB charge of local data
@@ -613,6 +599,24 @@ loadDB();
 
 // Initialize MongoDB Connection function
 export async function initializeMongo() {
+  if ((mongoose.connection.readyState as number) === 1) {
+    isMongoConnected = true;
+    return;
+  }
+
+  if ((mongoose.connection.readyState as number) === 2) {
+    // If connection is already establishing, wait for it
+    let attempts = 0;
+    while ((mongoose.connection.readyState as number) === 2 && attempts < 40) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    if ((mongoose.connection.readyState as number) === 1) {
+      isMongoConnected = true;
+      return;
+    }
+  }
+
   const DEFAULT_MONGO_URI = "mongodb+srv://abubakaransari0321_db_user:TfN5aC1I2ZFfis2h@cluster0.yidqcgq.mongodb.net/?appName=Cluster0";
   let MONGODB_URI = process.env.MONGODB_URI || DEFAULT_MONGO_URI;
 
@@ -628,9 +632,8 @@ export async function initializeMongo() {
 
   try {
     console.log("Connecting to MongoDB Atlas...");
-    // Limit connection attempts so the startup is fast even if Atlas credentials change
     await mongoose.connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 8000
+      serverSelectionTimeoutMS: 15000
     });
     isMongoConnected = true;
     console.log("MongoDB Connected Successfully to Cluster0!");
@@ -669,14 +672,14 @@ export async function initializeMongo() {
       // Guarantee our high-fidelity resume-screening items exist
       const specialAppIds = ["app-seed-sophia", "app-seed-ali", "app-seed-elena"];
       for (const appId of specialAppIds) {
-        const found = await ApplicationModel.findOne({ id: appId } as any);
-        if (!found) {
-          const originalApp = seeded.applications.find(a => a.id === appId);
-          if (originalApp) {
-            console.log(`Guaranteed Insertion: Seeding special resume candidate ${originalApp.candidateName} on MongoDB Atlas...`);
-            await ApplicationModel.create(originalApp);
-          }
-        }
+         const found = await ApplicationModel.findOne({ id: appId } as any);
+         if (!found) {
+           const originalApp = seeded.applications.find(a => a.id === appId);
+           if (originalApp) {
+             console.log(`Guaranteed Insertion: Seeding special resume candidate ${originalApp.candidateName} on MongoDB Atlas...`);
+             await ApplicationModel.create(originalApp);
+           }
+         }
       }
     }
 
@@ -718,15 +721,17 @@ export async function initializeMongo() {
     console.log("Seeding audits executed successfully! Pulling remote cloud entities into memory stream...");
     
     // Read final state from MongoDB Atlas to synchronize our memory representation
-    const users = await UserModel.find();
-    const employees = await EmployeeModel.find();
-    const jobs = await JobOpeningModel.find();
-    const applications = await ApplicationModel.find();
-    const attendance = await AttendanceModel.find();
-    const leaves = await LeaveRequestModel.find();
-    const payslips = await PayslipModel.find();
-    const performance = await PerformanceReviewModel.find();
-    const auditLogs = await AuditLogModel.find().sort({ createdAt: -1 });
+    const [users, employees, jobs, applications, attendance, leaves, payslips, performance, auditLogs] = await Promise.all([
+      UserModel.find(),
+      EmployeeModel.find(),
+      JobOpeningModel.find(),
+      ApplicationModel.find(),
+      AttendanceModel.find(),
+      LeaveRequestModel.find(),
+      PayslipModel.find(),
+      PerformanceReviewModel.find(),
+      AuditLogModel.find().sort({ createdAt: -1 })
+    ]);
 
     db = {
       users: users.map(doc => doc.toObject()),
@@ -741,12 +746,10 @@ export async function initializeMongo() {
     };
     
     console.log(`Atlas sync complete! Loaded ${employees.length} employees, ${jobs.length} jobs, and ${applications.length} candidate files.`);
-    // Set local file as a cached copy
-    saveDB();
   } catch (err) {
-    console.error("MongoDB Atlas connection timed out/failed. Falling back to persistent files.", err);
+    console.error("MongoDB Atlas connection failed.", err);
     isMongoConnected = false;
-    // Keep local db
+    throw err;
   }
 }
 
@@ -764,165 +767,183 @@ export const dbService = {
   getPerformance: () => db.performance,
   getLogs: () => db.auditLogs,
   saveDB: () => saveDB(),
-  getMongoStatus: () => isMongoConnected,
+  getMongoStatus: () => {
+    return mongoose.connection.readyState === 1 || isMongoConnected;
+  },
+  syncFromMongo: (newData: DBStorage) => {
+    db = newData;
+  },
 
   // Setters/mutations
-  createUser: (user: User) => {
-    db.users.push(user);
-    saveDB();
-    if (isMongoConnected) {
-      UserModel.create(user).catch(err => console.error("Error saving user to MongoDB:", err));
+  createUser: async (user: User) => {
+    // Avoid double-pushing if already in db from middleware
+    if (!db.users.some(u => u.id === user.id)) {
+      db.users.push(user);
+    }
+    if (mongoose.connection.readyState === 1 || isMongoConnected) {
+      await UserModel.create(user);
     }
     return user;
   },
 
-  createEmployee: (emp: Employee) => {
-    db.employees.push(emp);
-    saveDB();
-    if (isMongoConnected) {
-      EmployeeModel.create(emp).catch(err => console.error("Error saving employee to MongoDB:", err));
+  createEmployee: async (emp: Employee) => {
+    if (!db.employees.some(e => e.id === emp.id)) {
+      db.employees.push(emp);
+    }
+    if (mongoose.connection.readyState === 1 || isMongoConnected) {
+      await EmployeeModel.create(emp);
     }
     return emp;
   },
 
-  updateEmployee: (id: string, updates: Partial<Employee>) => {
+  updateEmployee: async (id: string, updates: Partial<Employee>) => {
     const idx = db.employees.findIndex(e => e.id === id);
     if (idx !== -1) {
       db.employees[idx] = { ...db.employees[idx], ...updates };
-      saveDB();
-      if (isMongoConnected) {
-        EmployeeModel.updateOne({ id }, { $set: updates }).catch(err => console.error("Error updating employee on MongoDB:", err));
+      if (mongoose.connection.readyState === 1 || isMongoConnected) {
+        await EmployeeModel.updateOne({ id }, { $set: updates });
       }
       return db.employees[idx];
     }
     return null;
   },
 
-  updateJob: (id: string, updates: Partial<JobOpening>) => {
+  updateJob: async (id: string, updates: Partial<JobOpening>) => {
     const idx = db.jobs.findIndex(j => j.id === id);
     if (idx !== -1) {
       db.jobs[idx] = { ...db.jobs[idx], ...updates };
-      saveDB();
-      if (isMongoConnected) {
-        JobOpeningModel.updateOne({ id }, { $set: updates }).catch(err => console.error("Error updating job criteria on MongoDB:", err));
+      if (mongoose.connection.readyState === 1 || isMongoConnected) {
+        await JobOpeningModel.updateOne({ id }, { $set: updates });
       }
       return db.jobs[idx];
     }
     return null;
   },
 
-  createApplication: (app: Application) => {
-    db.applications.push(app);
-    saveDB();
-    if (isMongoConnected) {
-      ApplicationModel.create(app).catch(err => console.error("Error saving candidate application to MongoDB:", err));
+  createApplication: async (app: Application) => {
+    if (!db.applications.some(a => a.id === app.id)) {
+      db.applications.push(app);
+    }
+    if (mongoose.connection.readyState === 1 || isMongoConnected) {
+      await ApplicationModel.create(app);
     }
     return app;
   },
 
-  updateApplicationStage: (id: string, stage: PipelineStage) => {
+  updateApplicationStage: async (id: string, stage: PipelineStage) => {
     const idx = db.applications.findIndex(a => a.id === id);
     if (idx !== -1) {
       db.applications[idx].stage = stage;
-      saveDB();
-      if (isMongoConnected) {
-        ApplicationModel.updateOne({ id }, { $set: { stage } }).catch(err => console.error("Error updating candidate stage on MongoDB:", err));
+      if (mongoose.connection.readyState === 1 || isMongoConnected) {
+        await ApplicationModel.updateOne({ id }, { $set: { stage } });
       }
       return db.applications[idx];
     }
     return null;
   },
 
-  updateApplication: (id: string, updates: Partial<Application>) => {
+  updateApplication: async (id: string, updates: Partial<Application>) => {
     const idx = db.applications.findIndex(a => a.id === id);
     if (idx !== -1) {
       db.applications[idx] = { ...db.applications[idx], ...updates };
-      saveDB();
-      if (isMongoConnected) {
-        ApplicationModel.updateOne({ id }, { $set: updates }).catch(err => console.error("Error updating candidate file on MongoDB:", err));
+      if (mongoose.connection.readyState === 1 || isMongoConnected) {
+        await ApplicationModel.updateOne({ id }, { $set: updates });
       }
       return db.applications[idx];
     }
     return null;
   },
 
-  createAttendance: (att: Attendance) => {
-    db.attendance.push(att);
-    saveDB();
-    if (isMongoConnected) {
-      AttendanceModel.create(att).catch(err => console.error("Error saving daily clock state to MongoDB:", err));
+  createAttendance: async (att: Attendance) => {
+    if (!db.attendance.some(a => a.id === att.id)) {
+      db.attendance.push(att);
+    }
+    if (mongoose.connection.readyState === 1 || isMongoConnected) {
+      await AttendanceModel.create(att);
     }
     return att;
   },
 
-  createLeaveRequest: (req: LeaveRequest) => {
-    db.leaves.push(req);
-    saveDB();
-    if (isMongoConnected) {
-      LeaveRequestModel.create(req).catch(err => console.error("Error creating leave application on MongoDB:", err));
+  updateAttendance: async (id: string, updates: Partial<Attendance>) => {
+    const idx = db.attendance.findIndex(a => a.id === id);
+    if (idx !== -1) {
+      db.attendance[idx] = { ...db.attendance[idx], ...updates };
+      if (mongoose.connection.readyState === 1 || isMongoConnected) {
+        await AttendanceModel.updateOne({ id }, { $set: updates });
+      }
+      return db.attendance[idx];
+    }
+    return null;
+  },
+
+  createLeaveRequest: async (req: LeaveRequest) => {
+    if (!db.leaves.some(l => l.id === req.id)) {
+      db.leaves.push(req);
+    }
+    if (mongoose.connection.readyState === 1 || isMongoConnected) {
+      await LeaveRequestModel.create(req);
     }
     return req;
   },
 
-  updateLeaveRequestStatus: (id: string, status: LeaveStatus, approvedBy?: string) => {
+  updateLeaveRequestStatus: async (id: string, status: LeaveStatus, approvedBy?: string) => {
     const idx = db.leaves.findIndex(l => l.id === id);
     if (idx !== -1) {
       db.leaves[idx].status = status;
       if (approvedBy) db.leaves[idx].approvedBy = approvedBy;
-      saveDB();
-      if (isMongoConnected) {
+      if (mongoose.connection.readyState === 1 || isMongoConnected) {
         const setQuery: any = { status };
         if (approvedBy) setQuery.approvedBy = approvedBy;
-        LeaveRequestModel.updateOne({ id }, { $set: setQuery }).catch(err => console.error("Error updating leave request status on MongoDB:", err));
+        await LeaveRequestModel.updateOne({ id }, { $set: setQuery });
       }
       return db.leaves[idx];
     }
     return null;
   },
 
-  createPayslip: (slip: Payslip) => {
-    db.payslips.push(slip);
-    saveDB();
-    if (isMongoConnected) {
-      PayslipModel.create(slip).catch(err => console.error("Error creating financial payslip on MongoDB:", err));
+  createPayslip: async (slip: Payslip) => {
+    if (!db.payslips.some(p => p.id === slip.id)) {
+      db.payslips.push(slip);
+    }
+    if (mongoose.connection.readyState === 1 || isMongoConnected) {
+      await PayslipModel.create(slip);
     }
     return slip;
   },
 
-  updatePayslipStatus: (id: string, status: PayrollStatus) => {
+  updatePayslipStatus: async (id: string, status: PayrollStatus) => {
     const idx = db.payslips.findIndex(p => p.id === id);
     if (idx !== -1) {
       db.payslips[idx].status = status;
       const processedAt = new Date().toISOString();
       db.payslips[idx].processedAt = processedAt;
-      saveDB();
-      if (isMongoConnected) {
-        PayslipModel.updateOne({ id }, { $set: { status, processedAt } }).catch(err => console.error("Error updating payslip status on MongoDB:", err));
+      if (mongoose.connection.readyState === 1 || isMongoConnected) {
+        await PayslipModel.updateOne({ id }, { $set: { status, processedAt } });
       }
       return db.payslips[idx];
     }
     return null;
   },
 
-  createPerformanceReview: (review: PerformanceReview) => {
-    db.performance.push(review);
-    saveDB();
-    if (isMongoConnected) {
-      PerformanceReviewModel.create(review).catch(err => console.error("Error submitting performance rating to MongoDB:", err));
+  createPerformanceReview: async (review: PerformanceReview) => {
+    if (!db.performance.some(p => p.id === review.id)) {
+      db.performance.push(review);
+    }
+    if (mongoose.connection.readyState === 1 || isMongoConnected) {
+      await PerformanceReviewModel.create(review);
     }
     return review;
   },
 
-  addLog: (log: Omit<AuditLog, "id" | "createdAt">) => {
+  addLog: async (log: Omit<AuditLog, "id" | "createdAt">) => {
     const newLog: AuditLog = {
       ...log,
       id: `log-${Math.random().toString(36).substr(2, 9)}`,
       createdAt: new Date().toISOString()
     };
     db.auditLogs.unshift(newLog); // Prepend new logs
-    saveDB();
-    if (isMongoConnected) {
-      AuditLogModel.create(newLog).catch(err => console.error("Error logging security event to MongoDB:", err));
+    if (mongoose.connection.readyState === 1 || isMongoConnected) {
+      await AuditLogModel.create(newLog);
     }
     return newLog;
   }
