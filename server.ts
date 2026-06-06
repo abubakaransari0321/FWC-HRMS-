@@ -654,7 +654,7 @@ app.post("/api/ai/chat", async (req, res) => {
   const applications = dbService.getApplications();
 
   // Create a database text index for tool reference context
-  const hrmsContext = `YOU ARE THE EXPERT AI HR ASSISTANT FOR "STITCH HRMS" ENTERPRISE SUITE.
+  const hrmsContext = `YOU ARE THE EXPERT AI HR ASSISTANT FOR "FWC HRMS" ENTERPRISE SUITE.
 You have REAL-TIME access to the local HRMS database state below:
 - Total Employees: ${employees.length}
 - Engineering Department: ${employees.filter(e => e.department === "Engineering").length} members
@@ -682,14 +682,14 @@ If the user asks specific questions about numbers of employees, candidate list, 
         }
       });
 
-      return res.json({ text: response.text || "I am here to help you manage Stitch HRMS." });
+      return res.json({ text: response.text || "I am here to help you manage FWC HRMS." });
     } catch (err) {
       console.error("Gemini Chat failed, cascading to intelligent simulation", err);
     }
   }
 
   // Simulated AI response using local state
-  let reply = "I am ready to assist with Stitch HRMS records.";
+  let reply = "I am ready to assist with FWC HRMS records.";
   const query = userMessage.toLowerCase();
 
   if (query.includes("employee") || query.includes("count") || query.includes("how many")) {
@@ -710,7 +710,7 @@ You can approve or reject these in the **Leave Management** module.`;
 - **David Miller** shares an **AI Score of 92** (*Screening* stage).
 You can track candidates using the visual drag-and-drop Kanban under **Recruitment**.`;
   } else {
-    reply = `As your Stitch HRMS Assistant, I've scanned the database. Everything is synchronized:
+    reply = `As your FWC HRMS Assistant, I've scanned the database. Everything is synchronized:
 - **Attendance Rate:** 94% today.
 - **Processed Payrolls:** Processed for all ${employees.length} members.
 How can I assist you further with payroll logs, performance drafts, or resume screenings?`;
@@ -874,7 +874,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Stitch HRMS Full-Stack Server running at http://localhost:${PORT}`);
+    console.log(`FWC HRMS Full-Stack Server running at http://localhost:${PORT}`);
   });
 }
 

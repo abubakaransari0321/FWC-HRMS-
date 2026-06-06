@@ -58,7 +58,7 @@ export default function DashboardView({
     { id: "act-1", icon: UserPlus, text: "David Chen was onboarded to", boldText: "Engineering", time: "2 hours ago", color: "bg-[#004ac6] text-white" },
     { id: "act-2", icon: UserCheck, text: "Leave request approved for", boldText: "Elena Rodriguez", time: "5 hours ago", color: "bg-green-600 text-white" },
     { id: "act-3", icon: MessageSquare, text: "Compliance training completed by", boldText: "Sales Team", time: "Yesterday, 4:30 PM", color: "bg-purple-600 text-white" },
-    { id: "act-4", icon: Briefcase, text: "System Audit completed for", boldText: "Stitch Payroll", time: "Yesterday, 1:15 PM", color: "bg-orange-600 text-white" }
+    { id: "act-4", icon: Briefcase, text: "System Audit completed for", boldText: "FWC Payroll", time: "Yesterday, 1:15 PM", color: "bg-orange-600 text-white" }
   ];
 
   const upcomingInterviews = [

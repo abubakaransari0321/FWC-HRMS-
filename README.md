@@ -1,6 +1,6 @@
-# Stitch HRMS - Enterprise-Grade AI-Powered Talent Suite
+# FWC HRMS - Enterprise-Grade AI-Powered Talent Suite
 
-Stitch HRMS is a dynamic, full-stack Human Resource Management System and Talent Acquisition Suite. Powered by a responsive client interface, a custom Express backend, and live synchronization with **MongoDB Atlas**, it incorporates advanced generative AI tooling driven by **Gemini 3.5 Flash** to streamline resume screening, automate performance drafts, and provide instant organizational insights.
+FWC HRMS is a dynamic, full-stack Human Resource Management System and Talent Acquisition Suite. Powered by a responsive client interface, a custom Express backend, and live synchronization with **MongoDB Atlas**, it incorporates advanced generative AI tooling driven by **Gemini 3.5 Flash** to streamline resume screening, automate performance drafts, and provide instant organizational insights.
 
 ---
 
@@ -27,7 +27,7 @@ Stitch HRMS is a dynamic, full-stack Human Resource Management System and Talent
 
 ## 💾 Database Architecture & Cloud Seeding
 
-Stitch HRMS features a hybrid cloud-resilient storage engine designed to run seamlessly across local and production environments:
+FWC HRMS features a hybrid cloud-resilient storage engine designed to run seamlessly across local and production environments:
 
 - **Durable Live Synchronization**: Directly connects to **MongoDB Atlas Cluster0** using mongoose schematization. Modifying candidate stages, checking in attendance, drafting evaluations, or logging secure system access writes instantly to the cloud.
 - **Granular Collection Seeding**: When connecting to an empty cluster, the backend initiates a custom multi-collection seeding sequence to generate highly detailed datasets across all categories:
@@ -81,14 +81,14 @@ You do not need to construct a Git environment or run manual terminal commands i
 2. Click the **Settings (Gear Icon)** or the **Export** menu.
 3. Select **Export to GitHub**.
 4. Authenticate your GitHub account and authorize AI Studio.
-5. Choose **Create New Repository**, enter `stitch-hrms` as your desired repository name, and click sync.
+5. Choose **Create New Repository**, enter `fwc-hrms` as your desired repository name, and click sync.
 6. The platform will automatically upload the clean repository with perfect styling configurations and your database seeding setup.
 
 ### Method B: Manual CLI Push
 If you prefer exporting the ZIP file first or want to push from your local computer:
 ```bash
 # Extract the ZIP and open the directory
-cd stitch-hrms
+cd fwc-hrms
 
 # Initialize git repository
 git init
@@ -97,11 +97,11 @@ git init
 git add .
 
 # Create initial commit
-git commit -m "feat: complete stitch hrms with gemini engine and mongodb atlas synchronization"
+git commit -m "feat: complete fwc hrms with gemini engine and mongodb atlas synchronization"
 
 # Connect to your GitHub repository
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/STITCH_HRMS.git
+git remote add origin https://github.com/YOUR_USERNAME/FWC_HRMS.git
 
 # Push to your remote repository
 git push -u origin main

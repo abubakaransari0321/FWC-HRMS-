@@ -290,7 +290,7 @@ export default function App() {
   };
 
   return (
-    <div id="stitch-app-root" className="min-h-screen bg-[#faf8ff] text-[#191b23] flex font-sans leading-normal">
+    <div id="fwc-app-root" className="min-h-screen bg-[#faf8ff] text-[#191b23] flex font-sans leading-normal">
       {/* Sidebar Navigation */}
       <Sidebar 
         currentTab={currentTab} 
@@ -311,12 +311,9 @@ export default function App() {
         {/* Top Header Section */}
         <header id="top-bar-header" className="flex flex-col md:flex-row justify-between items-stretch md:items-center border-b border-[#c3c6d7] pb-4 mb-6 gap-3">
           <div className="flex items-center gap-2">
-            <span className="bg-[#004ac6] text-white font-black text-xs px-2.5 py-1 rounded">
-              VER CHECKPOINT
-            </span>
-            <span className="text-[10px] uppercase tracking-wider text-[#737686] font-bold">
-              Active Server Gateway: Real-Time Sync Enabled (Port 3000)
-            </span>
+            <h2 className="text-xs font-black text-[#1e293b] uppercase tracking-wider bg-slate-100 px-2.5 py-1 rounded border border-slate-200">
+              FWC Workspace
+            </h2>
           </div>
 
           {/* Test Platform Identity Toggle Hub */}

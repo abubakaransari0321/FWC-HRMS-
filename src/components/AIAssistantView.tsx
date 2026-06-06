@@ -12,7 +12,7 @@ export default function AIAssistantView() {
     {
       id: "init",
       sender: "ai",
-      text: "Hello! I am your **Stitch HRMS Intelligent Assistant**. I have real-time access to our personnel directories, pending leaves, and active candidate portfolios.\n\nHow can I help you manage operations today?",
+      text: "Hello! I am your **FWC HRMS Intelligent Assistant**. I have real-time access to our personnel directories, pending leaves, and active candidate portfolios.\n\nHow can I help you manage operations today?",
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -122,7 +122,7 @@ export default function AIAssistantView() {
                 <Bot size={16} />
               </div>
               <div className="bg-[#f3f3fe] p-4 rounded-2xl text-slate-400 font-bold italic animate-pulse">
-                Stitch Assistant is compiling response...
+                FWC Assistant is compiling response...
               </div>
             </div>
           )}

@@ -290,7 +290,7 @@ function generateSeedData(): DBStorage {
       id: "job-1",
       title: "Senior Product Designer",
       department: "Design",
-      description: "We are looking for a Senior Product Designer to drive our design system and design the enterprise-grade Stitch HRMS application.",
+      description: "We are looking for a Senior Product Designer to drive our design system and design the enterprise-grade FWC HRMS application.",
       requirements: ["5+ years UX/UI design experience", "Design systems expertise", "Figma", "Interaction Design", "Prototyping"],
       salaryMin: 90000,
       salaryMax: 140000,

@@ -56,13 +56,13 @@ export default function Sidebar({
         <div className="flex items-center justify-between">
           {!collapsed && (
             <div className="flex flex-col gap-0.5">
-              <h1 className="text-xl font-bold text-[#004ac6] tracking-tight">Stitch HRMS</h1>
+              <h1 className="text-xl font-bold text-[#004ac6] tracking-tight">FWC HRMS</h1>
               <p className="text-[10px] text-[#505f76] font-bold uppercase tracking-wider">Enterprise Suite</p>
             </div>
           )}
           {collapsed && (
             <div className="w-8 h-8 rounded-xl bg-[#004ac6]/10 flex items-center justify-center text-[#004ac6] font-black text-sm">
-              S
+              F
             </div>
           )}
           <button 
