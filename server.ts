@@ -206,7 +206,7 @@ app.put("/api/employees/:id", (req, res) => {
 app.get("/api/db-status", (req, res) => {
   return res.json({
     connected: dbService.getMongoStatus(),
-    uri: "mongodb+srv://abubakaransari0321_db_user:HOqvrXVXKDbzYQMI@cluster0.yidqcgq.mongodb.net/hrms_db?appName=Cluster0"
+    uri: "mongodb+srv://abubakaransari0321_db_user:TfN5aC1I2ZFfis2h@cluster0.yidqcgq.mongodb.net/hrms_db?appName=Cluster0"
   });
 });
 

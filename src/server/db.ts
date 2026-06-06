@@ -616,11 +616,14 @@ export async function initializeMongo() {
   const DEFAULT_MONGO_URI = "mongodb+srv://abubakaransari0321_db_user:TfN5aC1I2ZFfis2h@cluster0.yidqcgq.mongodb.net/?appName=Cluster0";
   let MONGODB_URI = process.env.MONGODB_URI || DEFAULT_MONGO_URI;
 
-  // Gracefully handle accidental copy-paste brackets around password
+  // Gracefully handle accidental copy-paste brackets around password or old password
+  if (MONGODB_URI.includes("HOqvrXVXKDbzYQMI")) {
+    MONGODB_URI = MONGODB_URI.replace(/HOqvrXVXKDbzYQMI/g, "TfN5aC1I2ZFfis2h");
+  }
   if (MONGODB_URI.includes(":<TfN5aC1I2ZFfis2h>@")) {
     MONGODB_URI = MONGODB_URI.replace(":<TfN5aC1I2ZFfis2h>@", ":TfN5aC1I2ZFfis2h@");
   } else if (MONGODB_URI.includes(":<HOqvrXVXKDbzYQMI>@")) {
-    MONGODB_URI = MONGODB_URI.replace(":<HOqvrXVXKDbzYQMI>@", ":HOqvrXVXKDbzYQMI@");
+    MONGODB_URI = MONGODB_URI.replace(":<HOqvrXVXKDbzYQMI>@", ":TfN5aC1I2ZFfis2h@");
   }
 
   try {
