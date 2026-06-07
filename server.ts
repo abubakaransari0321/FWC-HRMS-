@@ -612,6 +612,8 @@ Return strictly a valid JSON object matching this schema:
 
   // Determine source text to scan
   let scanSource = resumeText || "";
+  let pdfUnparsedWarning = false;
+
   if (!scanSource && resumeBase64) {
     try {
       let cleanBase = resumeBase64;
@@ -624,49 +626,71 @@ Return strictly a valid JSON object matching this schema:
         // Regex to match printable words inside PDF stream structures
         const wordRegex = /[a-zA-Z]{3,20}/g;
         const matches = decoded.match(wordRegex);
-        if (matches) {
+        if (matches && matches.length > 0) {
           scanSource = matches.join(" ");
+        } else {
+          pdfUnparsedWarning = true;
         }
       } else {
         scanSource = Buffer.from(cleanBase, "base64").toString("utf-8");
       }
     } catch (err) {
       console.error("Local ASCII decoding fallback failed:", err);
+      pdfUnparsedWarning = true;
     }
   }
 
-  const normalizedSource = scanSource.toLowerCase();
+  const normalizedSource = scanSource.toLowerCase().trim();
 
-  for (const req of currentJob.requirements) {
-    const cleanWord = req.toLowerCase().trim();
-    // Match common abbreviations mapping
-    if (normalizedSource.includes(cleanWord)) {
-      matchedSkills.push(req);
-    } else if (cleanWord === "node.js" && (normalizedSource.includes("node") || normalizedSource.includes("nodejs"))) {
-      matchedSkills.push(req);
-    } else if (cleanWord === "next.js" && (normalizedSource.includes("next") || normalizedSource.includes("nextjs"))) {
-      matchedSkills.push(req);
-    } else {
-      missingSkills.push(req);
+  if (normalizedSource.length > 0) {
+    for (const req of currentJob.requirements) {
+      const cleanWord = req.toLowerCase().trim();
+      let matches = false;
+
+      // Exact phrase match or smart abbreviation match
+      if (normalizedSource.includes(cleanWord)) {
+        matches = true;
+      } else if (cleanWord === "node.js" && (normalizedSource.includes("node") || normalizedSource.includes("nodejs"))) {
+        matches = true;
+      } else if (cleanWord === "next.js" && (normalizedSource.includes("next") || normalizedSource.includes("nextjs"))) {
+        matches = true;
+      } else if (cleanWord.includes("ux/ui") || cleanWord.includes("ui/ux")) {
+        if (normalizedSource.includes("ux") || normalizedSource.includes("ui") || normalizedSource.includes("user interface") || normalizedSource.includes("user experience")) {
+          matches = true;
+        }
+      } else if (cleanWord.includes("figma") && normalizedSource.includes("figma")) {
+        matches = true;
+      } else if (cleanWord.includes("5+ years") || cleanWord.includes("5+ year")) {
+        if (normalizedSource.includes("5 years") || normalizedSource.includes("5+ year") || normalizedSource.includes("five years") || normalizedSource.includes("5 yrs")) {
+          matches = true;
+        }
+      }
+
+      if (matches) {
+        matchedSkills.push(req);
+      } else {
+        missingSkills.push(req);
+      }
     }
+  } else {
+    // No parseable text was extractable/supplied
+    missingSkills.push(...currentJob.requirements);
   }
 
-  let matchScore = currentJob.requirements.length > 0 
+  const matchScore = currentJob.requirements.length > 0 
     ? Math.round((matchedSkills.length / currentJob.requirements.length) * 100)
-    : 75;
+    : 0;
 
-  // Let's ensure if scanSource is empty or holds no matches (e.g. PDF compressed), we dynamically
-  // simulate an intellectual screen based on the candidate's name or a realistic random offset
-  if (matchedSkills.length === 0 && currentJob.requirements.length > 0) {
-    const seed = candidateName.charCodeAt(0) + candidateName.charCodeAt(candidateName.length - 1);
-    matchScore = 63 + (seed % 34); // Generates a realistic score based deterministically on candidate's name
-    const matchesCount = Math.max(1, Math.round((matchScore / 100) * currentJob.requirements.length));
-    matchedSkills.push(...currentJob.requirements.slice(0, matchesCount));
-    missingSkills.push(...currentJob.requirements.slice(matchesCount));
+  let summary = "";
+  if (pdfUnparsedWarning) {
+    summary = "Warning: PDF plain text could not be extracted by the rule engine. Please examine file manually.";
+  } else if (normalizedSource.length === 0) {
+    summary = "Blank or unreadable resume text. No requirements could be matched.";
+  } else {
+    summary = `Local HRMS Scanner: Found ${matchedSkills.length} matches out of ${currentJob.requirements.length} requirements.`;
   }
 
-  const summary = `Local HRMS Scanner: Found ${matchedSkills.length} matches out of ${currentJob.requirements.length} requirements.`;
-  const recommendation = matchScore >= 80 ? "shortlist" : (matchScore >= 50 ? "review" : "reject");
+  const recommendation = matchScore >= 80 ? "shortlist" : (matchScore >= 45 ? "review" : "reject");
   const reasoning = `Rule-Based Local Assessment Matrix:
 - Matched Skills: ${matchedSkills.join(", ") || "None"}
 - Gaps Identified: ${missingSkills.join(", ") || "None"}
@@ -675,7 +699,7 @@ Return strictly a valid JSON object matching this schema:
 
 ${matchScore >= 80 
   ? "Strong keyword match. Highly recommended to advance candidate to immediate HR screening." 
-  : (matchScore >= 50 
+  : (matchScore >= 45 
     ? "Partial skills alignment. Suggest conducting manual recruiter review to assess experience levels." 
     : "Low tech-stack keyword coverage. Suggest keeping resume in backup pool for other openings."
   )}`;

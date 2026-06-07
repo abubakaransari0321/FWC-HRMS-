@@ -33,6 +33,13 @@ export default function DashboardView({
     return () => clearInterval(timer);
   }, []);
 
+  const getGreeting = () => {
+    const hr = currentTime.getHours();
+    if (hr < 12) return "Good morning";
+    if (hr < 17) return "Good afternoon";
+    return "Good evening";
+  };
+
   // Compute stats
   const totalEmployees = employees.length;
   const activeEmployees = employees.filter(e => e.status === "ACTIVE").length;
@@ -74,13 +81,13 @@ export default function DashboardView({
         <div>
           <h2 className="text-display-lg font-bold text-[#191b23] tracking-tight">Admin Dashboard</h2>
           <p className="text-body-md text-[#505f76]">
-            Good morning. Today is {currentTime.toLocaleDateString("en-US", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
+            {getGreeting()}. Today is {currentTime.toLocaleDateString("en-US", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 bg-white px-4 py-2 border border-[#c3c6d7] rounded-xl text-sm font-medium text-[#434655] shadow-sm">
             <Calendar size={16} className="text-[#505f76]" />
-            <span>Feb 24, 2024</span>
+            <span>{currentTime.toLocaleDateString("en-US", { month: 'short', day: 'numeric', year: 'numeric' })}</span>
           </div>
           {userRole !== Role.EMPLOYEE && (
             <button 
