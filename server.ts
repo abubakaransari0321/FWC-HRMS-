@@ -506,112 +506,7 @@ app.post("/api/ai/screen-resume", async (req, res) => {
   const { candidateName, candidateEmail, resumeBase64, resumeText, jobOpeningId } = req.body;
   const currentJob = dbService.getJobs().find(j => j.id === jobOpeningId) || dbService.getJobs()[0];
 
-  const client = getGeminiClient();
-
-  if (client) {
-    try {
-      console.log(`Sending resume of ${candidateName} to Gemini Native API...`);
-      let contents: any[] = [];
-      let prompt = `You are an expert HR recruiter and corporate screener. Analyze the candidate's credentials against the job opening:
-Title: ${currentJob.title}
-Requirements: ${currentJob.requirements.join(", ")}
-Description: ${currentJob.description}
-
-Please score this candidate on a scale of 0 to 100. Provide:
-1. Match score (as an integer)
-2. A list of key matched skills/requirements
-3. A list of missing desired requirements/skills
-4. A 1-line professional candidate summary
-5. A recommendation status: 'shortlist', 'review', or 'reject'.
-
-Return strictly a valid JSON object matching this schema:
-{
-  "matchScore": 88,
-  "matchedSkills": ["Skill A", "Skill B"],
-  "missingSkills": ["Skill C"],
-  "summary": "Candidate exhibits strong alignment...",
-  "recommendation": "shortlist",
-  "reasoning": "Reason here..."
-}`;
-
-      if (resumeBase64) {
-        let cleanBase = resumeBase64;
-        if (cleanBase.includes("base64,")) {
-          cleanBase = cleanBase.split("base64,")[1];
-        }
-        contents.push({
-          inlineData: {
-            data: cleanBase,
-            mimeType: "application/pdf"
-          }
-        });
-        prompt = "Analyze the attached resume PDF document against the job constraints in this instruction. " + prompt;
-      } else if (resumeText) {
-        prompt = `${prompt}\n\nCandidate Resume / CV Text Content:\n${resumeText}`;
-      }
-
-      contents.push(prompt);
-
-      // Call Gemini 3.5 Flash
-      const response = await client.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              matchScore: { type: Type.INTEGER, description: "Match score of applicant (0-100)" },
-              matchedSkills: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Exact matching skills" },
-              missingSkills: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Missing desired skills" },
-              summary: { type: Type.STRING, description: "One-sentence summary explanation" },
-              recommendation: { type: Type.STRING, description: "Actionable keyword recommendation" },
-              reasoning: { type: Type.STRING, description: "Detailed analytic reasoning" }
-            },
-            required: ["matchScore", "matchedSkills", "missingSkills", "summary", "recommendation"]
-          }
-        }
-      });
-
-      const resultText = response.text || "{}";
-      const parsed = JSON.parse(resultText.trim());
-
-      // Create a candidate application with this real Gemini screening result!
-      const newApp = await dbService.createApplication({
-        id: `app-${Math.random().toString(36).substr(2, 9)}`,
-        jobOpeningId: currentJob.id,
-        candidateName: candidateName || "Candidate",
-        candidateEmail: candidateEmail || "candidate@example.com",
-        source: ApplicationSource.DIRECT,
-        stage: PipelineStage.SCREENING,
-        priority: parsed.matchScore >= 80 ? Priority.HIGH : Priority.NORMAL,
-        aiScore: parsed.matchScore,
-        aiSummary: parsed.summary,
-        aiSkillMatch: {
-          matched: parsed.matchedSkills,
-          missing: parsed.missingSkills
-        },
-        notes: parsed.reasoning || "Evaluation retrieved successfully via Gemini 3.5 Flash.",
-        resumeText: resumeText || "",
-        resumeBase64: resumeBase64 || "",
-        createdAt: new Date().toISOString()
-      });
-
-      return res.json({ success: true, application: newApp });
-
-    } catch (err: any) {
-      console.error("Gemini Native PDF API failed, falling back to secure local rule-matching search.", err);
-    }
-  }
-
-  // ----------------------------------------------------
-  // LOCAL DETERMINISTIC KEYWORD RESUME SCANNER FALLBACK ("implement our own")
-  // ----------------------------------------------------
-  console.log(`Running local rule-matching resume scanner fallback for candidate ${candidateName}...`);
-  const matchedSkills: string[] = [];
-  const missingSkills: string[] = [];
-
-  // Determine source text to scan
+  // 1. Extract parseable text from the resume up front so it's ready for both pathways
   let scanSource = resumeText || "";
   let pdfUnparsedWarning = false;
 
@@ -667,18 +562,6 @@ Return strictly a valid JSON object matching this schema:
     const normReq = req.toLowerCase().trim();
     if (!normReq) return false;
 
-    // Direct phrase match
-    if (normSource.includes(normReq)) {
-      return true;
-    }
-
-    // Exact word boundary check for short terms
-    const escaped = normReq.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const directRegex = new RegExp(`\\b${escaped}\\b`, 'i');
-    if (directRegex.test(normSource)) {
-      return true;
-    }
-
     // Technical abbreviations and equivalents
     if (normReq === "aws") {
       return /\b(aws|amazon web services)\b/i.test(normSource);
@@ -705,9 +588,21 @@ Return strictly a valid JSON object matching this schema:
       return hasStandaloneUI || hasStandaloneUX || hasCombo;
     }
 
+    // RegEx word boundary with lookbehinds and lookaheads for full alphanumeric accuracy
+    const escaped = normReq.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    try {
+      const pattern = new RegExp(`(?<![a-zA-Z0-9])${escaped}(?![a-zA-Z0-9])`, 'i');
+      if (pattern.test(normSource)) {
+        return true;
+      }
+    } catch (e) {
+      const directRegex = new RegExp(`\\b${escaped}\\b`, 'i');
+      if (directRegex.test(normSource)) {
+        return true;
+      }
+    }
+
     // Split multi-word requirements into core keyword tokens
-    // E.g. "5+ years UX/UI design experience" -> ["ux/ui", "design"]
-    // "design systems expertise" -> ["design", "systems"]
     if (normReq.includes(" ")) {
       const tokens = normReq.split(/\s+/)
         .map(t => t.replace(/[^a-zA-Z0-9#\+\.\/]/g, "").trim())
@@ -716,17 +611,151 @@ Return strictly a valid JSON object matching this schema:
       if (tokens.length > 0) {
         return tokens.every(token => {
           if (token === "ux/ui" || token === "ui/ux") {
-            return /\b(ui|ux|ui\/ux|ux\/ui|user interface|user experience)\b/i.test(normSource);
+            const hasStandaloneUI = /\bui\b/i.test(normSource) || /\buser interface\b/i.test(normSource);
+            const hasStandaloneUX = /\bux\b/i.test(normSource) || /\buser experience\b/i.test(normSource);
+            return hasStandaloneUI || hasStandaloneUX;
           }
           const escapedToken = token.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-          const tokenRegex = new RegExp(`\\b${escapedToken}\\b`, 'i');
-          return tokenRegex.test(normSource) || normSource.includes(token);
+          try {
+            const tokenPattern = new RegExp(`(?<![a-zA-Z0-9])${escapedToken}(?![a-zA-Z0-9])`, 'i');
+            return tokenPattern.test(normSource);
+          } catch (e) {
+            return new RegExp(`\\b${escapedToken}\\b`, 'i').test(normSource);
+          }
         });
       }
     }
 
     return false;
   };
+
+  const client = getGeminiClient();
+
+  if (client) {
+    try {
+      console.log(`Sending resume of ${candidateName} to Gemini Native API...`);
+      let contents: any[] = [];
+      let prompt = `You are an expert HR recruiter and corporate screener. Analyze the candidate's credentials against the job opening:
+Title: ${currentJob.title}
+Requirements: ${currentJob.requirements.join(", ")}
+Description: ${currentJob.description}
+
+Please score this candidate on a scale of 0 to 100. Provide:
+1. Match score (as an integer)
+2. A list of key matched skills/requirements
+3. A list of missing desired requirements/skills
+4. A 1-line professional candidate summary
+5. A recommendation status: 'shortlist', 'review', or 'reject'.
+
+Return strictly a valid JSON object matching this schema:
+{
+  "matchScore": 88,
+  "matchedSkills": ["Skill A", "Skill B"],
+  "missingSkills": ["Skill C"],
+  "summary": "Candidate exhibits strong alignment...",
+  "recommendation": "shortlist",
+  "reasoning": "Reason here..."
+}`;
+
+      if (resumeBase64) {
+        let cleanBase = resumeBase64;
+        if (cleanBase.includes("base64,")) {
+          cleanBase = cleanBase.split("base64,")[1];
+        }
+        contents.push({
+          inlineData: {
+            data: cleanBase,
+            mimeType: "application/pdf"
+          }
+        });
+        prompt = "Analyze the attached resume PDF document against the job constraints in this instruction. " + prompt;
+      } else if (scanSource) {
+        prompt = `${prompt}\n\nCandidate Resume / CV Text Content:\n${scanSource}`;
+      }
+
+      contents.push(prompt);
+
+      // Call Gemini 3.5 Flash
+      const response = await client.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              matchScore: { type: Type.INTEGER, description: "Match score of applicant (0-100)" },
+              matchedSkills: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Exact matching skills" },
+              missingSkills: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Missing desired skills" },
+              summary: { type: Type.STRING, description: "One-sentence summary explanation" },
+              recommendation: { type: Type.STRING, description: "Actionable keyword recommendation" },
+              reasoning: { type: Type.STRING, description: "Detailed analytic reasoning" }
+            },
+            required: ["matchScore", "matchedSkills", "missingSkills", "summary", "recommendation"]
+          }
+        }
+      });
+
+      const resultText = response.text || "{}";
+      const parsed = JSON.parse(resultText.trim());
+
+      // Let's align Gemini's output match metrics with currentJob.requirements precisely!
+      const finalMatchedGemini: string[] = [];
+      const finalMissingGemini: string[] = [];
+      
+      for (const req of currentJob.requirements) {
+        // High fidelity checks: did Gemini say it matched, OR does our local precision engine find it?
+        const isMatchedByGemini = Array.isArray(parsed.matchedSkills) && parsed.matchedSkills.some((s: any) => {
+          if (typeof s !== "string") return false;
+          return s.toLowerCase().includes(req.toLowerCase()) || req.toLowerCase().includes(s.toLowerCase());
+        });
+        const isMatchedByLocal = matchesKeyword(normalizedSource, req);
+        
+        if (isMatchedByGemini || isMatchedByLocal) {
+          finalMatchedGemini.push(req);
+        } else {
+          finalMissingGemini.push(req);
+        }
+      }
+
+      const matchScorePercent = currentJob.requirements.length > 0 
+        ? Math.round((finalMatchedGemini.length / currentJob.requirements.length) * 100)
+        : 0;
+
+      // Create a candidate application with this real Gemini screening result!
+      const newApp = await dbService.createApplication({
+        id: `app-${Math.random().toString(36).substr(2, 9)}`,
+        jobOpeningId: currentJob.id,
+        candidateName: candidateName || "Candidate",
+        candidateEmail: candidateEmail || "candidate@example.com",
+        source: ApplicationSource.DIRECT,
+        stage: PipelineStage.SCREENING,
+        priority: matchScorePercent >= 80 ? Priority.HIGH : Priority.NORMAL,
+        aiScore: matchScorePercent,
+        aiSummary: parsed.summary || `Found ${finalMatchedGemini.length} matches out of ${currentJob.requirements.length} requirements.`,
+        aiSkillMatch: {
+          matched: finalMatchedGemini,
+          missing: finalMissingGemini
+        },
+        notes: parsed.reasoning || `Aligned with requirements. Matched: ${finalMatchedGemini.join(", ")}. Missing: ${finalMissingGemini.join(", ")}`,
+        resumeText: scanSource || "",
+        resumeBase64: resumeBase64 || "",
+        createdAt: new Date().toISOString()
+      });
+
+      return res.json({ success: true, application: newApp });
+
+    } catch (err: any) {
+      console.error("Gemini Native PDF API failed, falling back to secure local rule-matching search.", err);
+    }
+  }
+
+  // ----------------------------------------------------
+  // LOCAL DETERMINISTIC KEYWORD RESUME SCANNER FALLBACK ("implement our own")
+  // ----------------------------------------------------
+  console.log(`Running local rule-matching resume scanner fallback for candidate ${candidateName}...`);
+  const matchedSkills: string[] = [];
+  const missingSkills: string[] = [];
 
   if (normalizedSource.length > 0) {
     for (const req of currentJob.requirements) {
@@ -783,7 +812,7 @@ ${matchScore >= 80
       missing: missingSkills
     },
     notes: reasoning,
-    resumeText: resumeText || "",
+    resumeText: scanSource || "",
     resumeBase64: resumeBase64 || "",
     createdAt: new Date().toISOString()
   });
