@@ -8,8 +8,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
-// @ts-ignore
-import pdf from "pdf-parse";
+import { PDFParse } from "pdf-parse";
 import { 
   dbService, 
   initializeMongo, 
@@ -627,8 +626,8 @@ Return strictly a valid JSON object matching this schema:
       if (decoded.includes("%PDF")) {
         try {
           const buffer = Buffer.from(cleanBase, "base64");
-          // @ts-ignore
-          const pdfData = await pdf(buffer);
+          const parser = new PDFParse({ data: new Uint8Array(buffer) });
+          const pdfData = await parser.getText();
           if (pdfData && pdfData.text) {
             scanSource = pdfData.text;
           } else {
@@ -673,17 +672,14 @@ Return strictly a valid JSON object matching this schema:
       return true;
     }
 
-    // Precision matching for tech tags
-    if (normReq.includes("ux/ui") || normReq.includes("ui/ux") || normReq === "ui" || normReq === "ux") {
-      const hasStandaloneUI = /\bui\b/i.test(normSource) || /\buser interface\b/i.test(normSource);
-      const hasStandaloneUX = /\bux\b/i.test(normSource) || /\buser experience\b/i.test(normSource);
-      const hasCombo = /\b(ui\/ux|ux\/ui|ui-ux|ux-ui)\b/i.test(normSource);
-      if (normReq.includes("ux/ui") || normReq.includes("ui/ux")) {
-        return (hasStandaloneUI && hasStandaloneUX) || hasCombo;
-      }
-      return hasStandaloneUI || hasStandaloneUX || hasCombo;
+    // Exact word boundary check for short terms
+    const escaped = normReq.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const directRegex = new RegExp(`\\b${escaped}\\b`, 'i');
+    if (directRegex.test(normSource)) {
+      return true;
     }
 
+    // Technical abbreviations and equivalents
     if (normReq === "aws") {
       return /\b(aws|amazon web services)\b/i.test(normSource);
     }
@@ -702,33 +698,29 @@ Return strictly a valid JSON object matching this schema:
     if (normReq === "c#") {
       return /\bc#\b/i.test(normSource);
     }
-
-    // Direct word boundary regex
-    const escaped = normReq.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const directRegex = new RegExp(`\\b${escaped}\\b`, 'i');
-    if (directRegex.test(normSource)) {
-      return true;
+    if (normReq.includes("ux/ui") || normReq.includes("ui/ux") || normReq === "ui" || normReq === "ux") {
+      const hasStandaloneUI = /\bui\b/i.test(normSource) || /\buser interface\b/i.test(normSource);
+      const hasStandaloneUX = /\bux\b/i.test(normSource) || /\buser experience\b/i.test(normSource);
+      const hasCombo = /\b(ui\/ux|ux\/ui|ui-ux|ux-ui)\b/i.test(normSource);
+      return hasStandaloneUI || hasStandaloneUX || hasCombo;
     }
 
-    // Contextual checks for design terms
-    if (normReq.includes("design experience") || normReq.includes("expertise")) {
-      if (normReq.includes("ux/ui") || normReq.includes("ui/ux")) {
-        const hasStandaloneUI = /\bui\b/i.test(normSource) || /\buser interface\b/i.test(normSource);
-        const hasStandaloneUX = /\bux\b/i.test(normSource) || /\buser experience\b/i.test(normSource);
-        return hasStandaloneUI || hasStandaloneUX;
-      }
-      if (normReq.includes("design systems")) {
-        return /\b(design system|design systems)\b/i.test(normSource);
-      }
-    }
-
-    // Multi-word phrase splitting as fallback
+    // Split multi-word requirements into core keyword tokens
+    // E.g. "5+ years UX/UI design experience" -> ["ux/ui", "design"]
+    // "design systems expertise" -> ["design", "systems"]
     if (normReq.includes(" ")) {
-      const wordTokens = normReq.split(/\s+/).filter(w => w.length > 2 && !["and", "the", "with", "for", "experience", "expertise"].includes(w));
-      if (wordTokens.length > 0) {
-        return wordTokens.every(token => {
+      const tokens = normReq.split(/\s+/)
+        .map(t => t.replace(/[^a-zA-Z0-9#\+\.\/]/g, "").trim())
+        .filter(t => t.length > 1 && !["and", "the", "with", "for", "years", "year", "experience", "expertise", "expert", "knowledge", "skills", "of", "in"].includes(t));
+      
+      if (tokens.length > 0) {
+        return tokens.every(token => {
+          if (token === "ux/ui" || token === "ui/ux") {
+            return /\b(ui|ux|ui\/ux|ux\/ui|user interface|user experience)\b/i.test(normSource);
+          }
           const escapedToken = token.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-          return new RegExp(`\\b${escapedToken}\\b`, 'i').test(normSource);
+          const tokenRegex = new RegExp(`\\b${escapedToken}\\b`, 'i');
+          return tokenRegex.test(normSource) || normSource.includes(token);
         });
       }
     }
