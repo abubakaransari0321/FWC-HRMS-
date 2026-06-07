@@ -30,7 +30,7 @@ const EmployeeSchema = new Schema({
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
   email: { type: String, required: true },
-  phone: { type: String, required: true },
+  phone: { type: String },
   avatarUrl: { type: String },
   department: { type: String, required: true },
   designation: { type: String, required: true },

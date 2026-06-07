@@ -230,7 +230,7 @@ app.post("/api/employees", async (req, res) => {
     firstName: data.firstName || "New",
     lastName: data.lastName || "Employee",
     email: data.email || `new.emp-${Math.random().toString(36).substr(2, 4)}@fwc.co.in`,
-    phone: data.phone,
+    phone: data.phone || "+91 99000 88000",
     department: data.department || "Engineering",
     designation: data.designation || "Staff Specialist",
     employmentType: data.employmentType || EmploymentType.FULL_TIME,
