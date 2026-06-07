@@ -8,6 +8,8 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+// @ts-ignore
+import pdf from "pdf-parse";
 import { 
   dbService, 
   initializeMongo, 
@@ -623,13 +625,31 @@ Return strictly a valid JSON object matching this schema:
       // If it has PDF markers, try to extract ASCII readable chars
       const decoded = Buffer.from(cleanBase, "base64").toString("binary");
       if (decoded.includes("%PDF")) {
-        // Regex to match printable words inside PDF stream structures
-        const wordRegex = /[a-zA-Z]{3,20}/g;
-        const matches = decoded.match(wordRegex);
-        if (matches && matches.length > 0) {
-          scanSource = matches.join(" ");
-        } else {
-          pdfUnparsedWarning = true;
+        try {
+          const buffer = Buffer.from(cleanBase, "base64");
+          // @ts-ignore
+          const pdfData = await pdf(buffer);
+          if (pdfData && pdfData.text) {
+            scanSource = pdfData.text;
+          } else {
+            // Regex fallback if pdf text extraction yields empty
+            const wordRegex = /[a-zA-Z0-9#\+\.]{2,30}/g;
+            const matches = decoded.match(wordRegex);
+            if (matches && matches.length > 0) {
+              scanSource = matches.join(" ");
+            } else {
+              pdfUnparsedWarning = true;
+            }
+          }
+        } catch (pdfErr) {
+          console.error("pdf-parse library error, using fallback regex:", pdfErr);
+          const wordRegex = /[a-zA-Z0-9#\+\.]{2,30}/g;
+          const matches = decoded.match(wordRegex);
+          if (matches && matches.length > 0) {
+            scanSource = matches.join(" ");
+          } else {
+            pdfUnparsedWarning = true;
+          }
         }
       } else {
         scanSource = Buffer.from(cleanBase, "base64").toString("utf-8");
@@ -642,31 +662,83 @@ Return strictly a valid JSON object matching this schema:
 
   const normalizedSource = scanSource.toLowerCase().trim();
 
+  // Helper keyword matcher function with strict standalone word check
+  const matchesKeyword = (sourceText: string, req: string): boolean => {
+    const normSource = sourceText.toLowerCase();
+    const normReq = req.toLowerCase().trim();
+    if (!normReq) return false;
+
+    // Direct phrase match
+    if (normSource.includes(normReq)) {
+      return true;
+    }
+
+    // Precision matching for tech tags
+    if (normReq.includes("ux/ui") || normReq.includes("ui/ux") || normReq === "ui" || normReq === "ux") {
+      const hasStandaloneUI = /\bui\b/i.test(normSource) || /\buser interface\b/i.test(normSource);
+      const hasStandaloneUX = /\bux\b/i.test(normSource) || /\buser experience\b/i.test(normSource);
+      const hasCombo = /\b(ui\/ux|ux\/ui|ui-ux|ux-ui)\b/i.test(normSource);
+      if (normReq.includes("ux/ui") || normReq.includes("ui/ux")) {
+        return (hasStandaloneUI && hasStandaloneUX) || hasCombo;
+      }
+      return hasStandaloneUI || hasStandaloneUX || hasCombo;
+    }
+
+    if (normReq === "aws") {
+      return /\b(aws|amazon web services)\b/i.test(normSource);
+    }
+    if (normReq === "python") {
+      return /\bpython\b/i.test(normSource);
+    }
+    if (normReq === "node.js" || normReq === "node") {
+      return /\b(node|nodejs|node\.js)\b/i.test(normSource);
+    }
+    if (normReq === "next.js" || normReq === "next") {
+      return /\b(next|nextjs|next\.js)\b/i.test(normSource);
+    }
+    if (normReq === "c++") {
+      return /(\bc\+\+|\bcpp\b)/i.test(normSource);
+    }
+    if (normReq === "c#") {
+      return /\bc#\b/i.test(normSource);
+    }
+
+    // Direct word boundary regex
+    const escaped = normReq.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const directRegex = new RegExp(`\\b${escaped}\\b`, 'i');
+    if (directRegex.test(normSource)) {
+      return true;
+    }
+
+    // Contextual checks for design terms
+    if (normReq.includes("design experience") || normReq.includes("expertise")) {
+      if (normReq.includes("ux/ui") || normReq.includes("ui/ux")) {
+        const hasStandaloneUI = /\bui\b/i.test(normSource) || /\buser interface\b/i.test(normSource);
+        const hasStandaloneUX = /\bux\b/i.test(normSource) || /\buser experience\b/i.test(normSource);
+        return hasStandaloneUI || hasStandaloneUX;
+      }
+      if (normReq.includes("design systems")) {
+        return /\b(design system|design systems)\b/i.test(normSource);
+      }
+    }
+
+    // Multi-word phrase splitting as fallback
+    if (normReq.includes(" ")) {
+      const wordTokens = normReq.split(/\s+/).filter(w => w.length > 2 && !["and", "the", "with", "for", "experience", "expertise"].includes(w));
+      if (wordTokens.length > 0) {
+        return wordTokens.every(token => {
+          const escapedToken = token.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+          return new RegExp(`\\b${escapedToken}\\b`, 'i').test(normSource);
+        });
+      }
+    }
+
+    return false;
+  };
+
   if (normalizedSource.length > 0) {
     for (const req of currentJob.requirements) {
-      const cleanWord = req.toLowerCase().trim();
-      let matches = false;
-
-      // Exact phrase match or smart abbreviation match
-      if (normalizedSource.includes(cleanWord)) {
-        matches = true;
-      } else if (cleanWord === "node.js" && (normalizedSource.includes("node") || normalizedSource.includes("nodejs"))) {
-        matches = true;
-      } else if (cleanWord === "next.js" && (normalizedSource.includes("next") || normalizedSource.includes("nextjs"))) {
-        matches = true;
-      } else if (cleanWord.includes("ux/ui") || cleanWord.includes("ui/ux")) {
-        if (normalizedSource.includes("ux") || normalizedSource.includes("ui") || normalizedSource.includes("user interface") || normalizedSource.includes("user experience")) {
-          matches = true;
-        }
-      } else if (cleanWord.includes("figma") && normalizedSource.includes("figma")) {
-        matches = true;
-      } else if (cleanWord.includes("5+ years") || cleanWord.includes("5+ year")) {
-        if (normalizedSource.includes("5 years") || normalizedSource.includes("5+ year") || normalizedSource.includes("five years") || normalizedSource.includes("5 yrs")) {
-          matches = true;
-        }
-      }
-
-      if (matches) {
+      if (matchesKeyword(normalizedSource, req)) {
         matchedSkills.push(req);
       } else {
         missingSkills.push(req);
