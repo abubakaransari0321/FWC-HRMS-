@@ -109,28 +109,7 @@ git push -u origin main
 
 ---
 
-## 🚀 Running Locally
-
-To run the full-stack system locally, ensure **Node.js (v18+)** is installed:
-
-1. Clone or download and extract the repository files.
-2. Install all dependencies:
-   ```bash
-   npm install
-   ```
-3. Set your cluster secrets on a local environment file `.env` (refer to `.env.example`):
-   ```env
-   GEMINI_API_KEY="..."
-   MONGODB_URI="mongodb+srv://abubakaransari0321_db_user:TfN5aC1I2ZFfis2h@cluster0.yidqcgq.mongodb.net/?appName=Cluster0"
-   ```
-4. Start the full-stack development server:
-   ```bash
-   npm run dev
-   ```
-5. View the dashboard locally at `http://localhost:3000`.
-
----
-
 ## 📃 License
 
 Distributed under the MIT License. Developed for enterprise scale with visual excellence.
+
